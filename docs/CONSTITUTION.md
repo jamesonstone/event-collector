@@ -41,6 +41,7 @@ The core ingest path is:
 
 - `src/event_collector/api/schemas.py` defines external request and response contracts with Pydantic.
 - `src/event_collector/api/routes.py` adapts HTTP requests to the ingest service and maps domain errors to HTTP statuses.
+- `src/event_collector/api/routes.py` also owns the optional debug page, debug stream route, and in-memory fanout used only when `EC_ENV=debug`.
 - `src/event_collector/cli.py` adapts command-line commands to the same service path used by HTTP.
 - `src/event_collector/ingest/service.py` owns core ingest orchestration and idempotency behavior.
 - `src/event_collector/ledger/base.py` defines the ledger protocol.
@@ -85,6 +86,12 @@ The core ingest path is:
 - The single-event HTTP endpoint maps hash conflicts to `409`, hash validation failures to `422`, storage failures to `500`, and missing events to `404`.
 - Batch ingest returns per-event results and must not let one conflicting event prevent independent events in the batch from being reported.
 - The raw event object must be written before a success acknowledgement.
+- Swagger UI is served from `/`; `/docs` is not a supported docs route.
+- The `/debug` page and `/debug/stream` must only be registered when `EC_ENV` exactly equals `debug`.
+- When debug mode is disabled, debug routes must be inaccessible and omitted from OpenAPI/Swagger.
+- `/debug` must be a finite browser-readable page, not the never-ending raw stream response.
+- Debug streaming must not block event ingestion; slow debug consumers may miss messages.
+- Debug filtering and bulk copy are bounded in-memory visibility tools and must not create a public event-query API by accident.
 - Filesystem storage must be idempotent for identical existing content and reject different existing content.
 - Filesystem path segments must be sanitized before writing.
 - SQLite remains an ingest/index ledger and must not be treated as the raw event archive.

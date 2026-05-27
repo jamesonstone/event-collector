@@ -7,11 +7,13 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from event_collector.api.routes import router
+from event_collector.api.routes import DebugEventBus, debug_router, router
 from event_collector.config import AppConfig, load_config
 from event_collector.ingest.service import IngestService
 from event_collector.ledger.sqlite import SQLiteLedger
 from event_collector.storage.filesystem import FilesystemStorage
+
+DEBUG_ENV_VALUE = "debug"
 
 
 def create_app(config: AppConfig) -> FastAPI:
@@ -25,13 +27,16 @@ def create_app(config: AppConfig) -> FastAPI:
         title="event-collector",
         version="0.1.0",
         description="Generic collector for immutable application fact event streams.",
-        docs_url="/docs",
+        docs_url="/",
         redoc_url="/redoc",
         openapi_url="/openapi.json",
     )
     app.state.config = config
     app.state.ingest_service = service
     app.include_router(router)
+    if os.environ.get("EC_ENV") == DEBUG_ENV_VALUE:
+        app.state.debug_event_bus = DebugEventBus()
+        app.include_router(debug_router)
     return app
 
 
