@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import json
+from collections.abc import AsyncIterator
+from contextlib import suppress
 from pathlib import Path
 from queue import Queue
+from types import SimpleNamespace
 from typing import cast
 
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 from tests.conftest import make_event
 
@@ -198,3 +203,30 @@ def test_debug_bus_replays_recent_history() -> None:
 
     assert replayed[0]["event_id"] == "event-1"
     assert replayed[-1]["event_id"] == "event-1000"
+
+
+def test_debug_stream_idle_iterator_cancels_without_blocking() -> None:
+    from event_collector.api.routes import DebugEventBus, debug_stream
+
+    bus = DebugEventBus()
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/debug/stream",
+        "headers": [],
+        "app": SimpleNamespace(state=SimpleNamespace(debug_event_bus=bus)),
+    }
+    request = Request(scope)
+    response = debug_stream(request)
+
+    async def exercise_stream_cancellation() -> None:
+        iterator = cast(AsyncIterator[str], response.body_iterator)
+        pending_line = asyncio.create_task(anext(iterator))
+        await asyncio.sleep(0)
+        pending_line.cancel()
+        with suppress(asyncio.CancelledError):
+            await pending_line
+
+    asyncio.run(exercise_stream_cancellation())
+
+    assert len(bus._subscribers) == 0

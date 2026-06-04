@@ -17,6 +17,8 @@ stable ingest API or adding persisted query behavior.
 - Allow operators to manually refresh visible debug events from the current in-memory buffer.
 - Allow operators to open and collapse all visible debug event panels.
 - Allow operators to copy matching canonical event envelopes as a JSON array.
+- Keep debug streaming cancellation-friendly so server shutdown does not require repeated
+  interrupts.
 - Do not add public `/v1` query or export endpoints.
 - Do not add SQLite schema changes, migrations, or persisted query behavior.
 - Avoid domain-specific terminology in user-facing labels, routes, code, and docs.

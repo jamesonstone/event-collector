@@ -8,20 +8,25 @@ import signal
 import subprocess
 import sys
 from pathlib import Path
+from types import FrameType
 from typing import Annotated
 from urllib.error import URLError
 from urllib.request import urlopen
 
 import typer
 import uvicorn
+from fastapi import FastAPI
 
+from event_collector.api.routes import DebugEventBus
 from event_collector.api.schemas import EventEnvelope
 from event_collector.config import load_config
 from event_collector.errors import EventCollectorError, HashConflictError, HashValidationError
 from event_collector.ingest.service import IngestService
 from event_collector.ledger.sqlite import SQLiteLedger
-from event_collector.main import create_app
+from event_collector.main import DEBUG_ENV_VALUE, create_app
 from event_collector.storage.filesystem import FilesystemStorage
+
+DEBUG_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS = 1
 
 app = typer.Typer(help="Generic event collector for immutable application fact streams.")
 db_app = typer.Typer(help="Database/ledger commands.")
@@ -73,12 +78,50 @@ def server_start(
         _start_background(config.resolve(), resolved_host, resolved_port, pid_file, log_file)
         return
 
-    uvicorn.run(
-        create_app(cfg),
+    api_app = create_app(cfg)
+    debug_event_bus = getattr(api_app.state, "debug_event_bus", None)
+    _run_server(
+        api_app,
         host=resolved_host,
         port=resolved_port,
-        log_level="info",
+        debug_event_bus=debug_event_bus if isinstance(debug_event_bus, DebugEventBus) else None,
     )
+
+
+class EventCollectorServer(uvicorn.Server):
+    def __init__(
+        self,
+        config: uvicorn.Config,
+        *,
+        debug_event_bus: DebugEventBus | None,
+    ) -> None:
+        super().__init__(config)
+        self._debug_event_bus = debug_event_bus
+
+    def handle_exit(self, sig: int, frame: FrameType | None) -> None:
+        if self._debug_event_bus is not None:
+            self._debug_event_bus.close()
+        super().handle_exit(sig, frame)
+
+
+def _run_server(
+    api_app: FastAPI,
+    *,
+    host: str,
+    port: int,
+    debug_event_bus: DebugEventBus | None,
+) -> None:
+    server = EventCollectorServer(
+        uvicorn.Config(
+            api_app,
+            host=host,
+            port=port,
+            log_level="info",
+            timeout_graceful_shutdown=_graceful_shutdown_timeout(),
+        ),
+        debug_event_bus=debug_event_bus,
+    )
+    server.run()
 
 
 @server_app.command("status")
@@ -170,6 +213,12 @@ def _service_from_config(config_path: Path) -> IngestService:
     ledger.initialize()
     storage = FilesystemStorage(cfg.storage.root)
     return IngestService(ledger=ledger, storage=storage, config=cfg.ingest)
+
+
+def _graceful_shutdown_timeout() -> int | None:
+    if os.environ.get("EC_ENV") == DEBUG_ENV_VALUE:
+        return DEBUG_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS
+    return None
 
 
 def _start_background(

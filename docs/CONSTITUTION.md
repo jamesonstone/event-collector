@@ -91,6 +91,7 @@ The core ingest path is:
 - When debug mode is disabled, debug routes must be inaccessible and omitted from OpenAPI/Swagger.
 - `/debug` must be a finite browser-readable page, not the never-ending raw stream response.
 - Debug streaming must not block event ingestion; slow debug consumers may miss messages.
+- Debug streaming must shut down cleanly without requiring repeated interrupts.
 - Debug filtering and bulk copy are bounded in-memory visibility tools and must not create a public event-query API by accident.
 - Filesystem storage must be idempotent for identical existing content and reject different existing content.
 - Filesystem path segments must be sanitized before writing.

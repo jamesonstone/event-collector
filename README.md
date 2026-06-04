@@ -124,7 +124,8 @@ and copy matching canonical event envelopes as a JSON array.
 
 Manual refresh uses the hidden `GET /debug/history` route. Like the stream, it
 is registered only when `EC_ENV=debug`, is omitted from OpenAPI, and is not a
-public query/export API.
+public query/export API. In debug mode, long-lived stream connections are
+cancelled during shutdown so one interrupt can stop the server cleanly.
 
 ## Configuration
 

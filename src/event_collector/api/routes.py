@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections import deque
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
-from queue import Full, Queue
+from queue import Empty, Full, Queue
 from threading import Lock
 from typing import Any, cast
 
@@ -28,6 +29,7 @@ router = APIRouter()
 debug_router = APIRouter()
 HTTP_UNPROCESSABLE_ENTITY = 422
 DEBUG_STREAM_MEDIA_TYPE = "application/x-ndjson"
+DEBUG_STREAM_IDLE_SLEEP_SECONDS = 0.1
 DEBUG_PAGE_HTML = """<!doctype html>
 <html lang="en">
 <head>
@@ -58,7 +60,7 @@ DEBUG_PAGE_HTML = """<!doctype html>
       min-height: 100vh;
       background: var(--bg);
       color: var(--text);
-      font-size: 12px;
+      font-size: 13px;
       font-family:
         ui-sans-serif,
         system-ui,
@@ -97,7 +99,7 @@ DEBUG_PAGE_HTML = """<!doctype html>
 
     h1 {
       margin: 0;
-      font-size: 15px;
+      font-size: 16px;
       font-weight: 700;
       white-space: nowrap;
     }
@@ -108,7 +110,7 @@ DEBUG_PAGE_HTML = """<!doctype html>
       justify-content: flex-end;
       gap: 4px 12px;
       color: var(--muted);
-      font-size: 11px;
+      font-size: 12px;
     }
 
     .toolbar {
@@ -124,7 +126,7 @@ DEBUG_PAGE_HTML = """<!doctype html>
       display: inline-flex;
       align-items: center;
       gap: 5px;
-      font-size: 11px;
+      font-size: 12px;
       color: var(--muted);
     }
 
@@ -158,7 +160,7 @@ DEBUG_PAGE_HTML = """<!doctype html>
       display: grid;
       gap: 2px;
       color: var(--muted);
-      font-size: 10.5px;
+      font-size: 11.5px;
     }
 
     input {
@@ -170,7 +172,7 @@ DEBUG_PAGE_HTML = """<!doctype html>
       color: var(--text);
       padding: 3px 5px;
       font: inherit;
-      font-size: 11px;
+      font-size: 12px;
     }
 
     input:focus {
@@ -200,7 +202,7 @@ DEBUG_PAGE_HTML = """<!doctype html>
       color: var(--text);
       padding: 3px 7px;
       font: inherit;
-      font-size: 11px;
+      font-size: 12px;
       cursor: pointer;
     }
 
@@ -271,7 +273,7 @@ DEBUG_PAGE_HTML = """<!doctype html>
       background: #020617;
       color: #d1fae5;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 10.5px;
+      font-size: 11.5px;
       line-height: 1.3;
       resize: vertical;
     }
@@ -305,7 +307,7 @@ DEBUG_PAGE_HTML = """<!doctype html>
     .event-name {
       color: var(--text);
       font-weight: 700;
-      font-size: 12px;
+      font-size: 13px;
       overflow-wrap: anywhere;
     }
 
@@ -314,7 +316,7 @@ DEBUG_PAGE_HTML = """<!doctype html>
     .event-source {
       color: var(--muted);
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 10.5px;
+      font-size: 11.5px;
       overflow-wrap: anywhere;
     }
 
@@ -327,7 +329,7 @@ DEBUG_PAGE_HTML = """<!doctype html>
       background: #020617;
       color: #d1fae5;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 10.5px;
+      font-size: 11.5px;
       line-height: 1.3;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
@@ -762,11 +764,14 @@ class DebugEventBus:
         self._queue_size = queue_size
         self._subscribers: set[Queue[str]] = set()
         self._history: deque[str] = deque(maxlen=history_size)
+        self._closed = False
         self._lock = Lock()
 
     def subscribe(self) -> Queue[str]:
         subscriber: Queue[str] = Queue(maxsize=self._queue_size)
         with self._lock:
+            if self._closed:
+                return subscriber
             for line in self._history:
                 try:
                     subscriber.put_nowait(line)
@@ -782,6 +787,8 @@ class DebugEventBus:
     def publish(self, event: dict[str, Any]) -> None:
         line = json.dumps(event, ensure_ascii=False) + "\n"
         with self._lock:
+            if self._closed:
+                return
             self._history.append(line)
             subscribers = tuple(self._subscribers)
 
@@ -795,6 +802,14 @@ class DebugEventBus:
         with self._lock:
             lines = tuple(self._history)
         return [json.loads(line) for line in lines]
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+
+    def is_closed(self) -> bool:
+        with self._lock:
+            return self._closed
 
 
 def _debug_event_bus(request: Request) -> DebugEventBus | None:
@@ -939,11 +954,14 @@ def debug_history(request: Request) -> list[dict[str, Any]]:
 def debug_stream(request: Request) -> StreamingResponse:
     bus = _required_debug_event_bus(request)
 
-    def event_lines() -> Iterator[str]:
+    async def event_lines() -> AsyncIterator[str]:
         subscriber = bus.subscribe()
         try:
-            while True:
-                yield subscriber.get()
+            while not bus.is_closed():
+                try:
+                    yield subscriber.get_nowait()
+                except Empty:
+                    await asyncio.sleep(DEBUG_STREAM_IDLE_SLEEP_SECONDS)
         finally:
             bus.unsubscribe(subscriber)
 
