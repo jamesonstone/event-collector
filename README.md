@@ -20,6 +20,10 @@
 envelopes.** It validates hashes, enforces `event_id` idempotency, writes raw
 immutable JSON objects, and records ingest state in a local SQLite ledger.
 
+<!-- BEGIN KIT-MANAGED README BADGES -->
+[![Last commit](https://img.shields.io/github/last-commit/jamesonstone/event-collector)](https://github.com/jamesonstone/event-collector/commits) [![Open issues](https://img.shields.io/github/issues/jamesonstone/event-collector)](https://github.com/jamesonstone/event-collector/issues) [![Pull requests](https://img.shields.io/github/issues-pr/jamesonstone/event-collector)](https://github.com/jamesonstone/event-collector/pulls) [![Release](https://img.shields.io/github/v/release/jamesonstone/event-collector)](https://github.com/jamesonstone/event-collector/releases)
+<!-- END KIT-MANAGED README BADGES -->
+
 No business-specific rules. No workflow semantics. Just durable collection for
 application fact streams.
 
@@ -258,3 +262,7 @@ storage, and generic event-envelope validation.
 ## 👤 Maintainer
 
 - [Jameson Stone](https://github.com/jamesonstone) — Lead Maintainer
+
+## Maintainers
+
+Maintained with 🪖 and ❤️ by [Jameson](https://github.com/jamesonstone) (`jamesonstone`).
